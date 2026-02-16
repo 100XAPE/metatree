@@ -91,14 +91,38 @@ function isDerivative(runnerName: string, runnerSymbol: string, tokenName: strin
   
   // Don't match self
   if (runnerText === tokenText) return false;
+  if (runnerSymbol.toLowerCase() === tokenSymbol.toLowerCase()) return false;
   
+  // Direct symbol/name substring matching (more aggressive)
+  const runnerSymLower = runnerSymbol.toLowerCase();
+  const tokenSymLower = tokenSymbol.toLowerCase();
+  const tokenNameLower = tokenName.toLowerCase();
+  const runnerNameLower = runnerName.toLowerCase();
+  
+  // Check if runner symbol appears in token name/symbol
+  if (runnerSymLower.length >= 3) {
+    if (tokenSymLower.includes(runnerSymLower) || tokenNameLower.includes(runnerSymLower)) {
+      return true;
+    }
+  }
+  
+  // Check if significant part of runner name appears in token
+  const runnerWords = runnerNameLower.split(/[\s\-_]+/).filter(w => w.length >= 4);
+  for (const word of runnerWords) {
+    if (tokenSymLower.includes(word) || tokenNameLower.includes(word)) {
+      return true;
+    }
+  }
+  
+  // Keyword-based matching
   const runnerKeywords = extractKeywords(runnerName, runnerSymbol);
   const tokenKeywords = extractKeywords(tokenName, tokenSymbol);
   
-  // Check for shared keywords
-  const shared = runnerKeywords.filter(k => tokenKeywords.includes(k));
+  // Check for shared keywords (need meaningful ones, not common ones)
+  const commonWords = ['the', 'coin', 'token', 'sol', 'pump', 'moon', 'rocket', 'baby', 'mini', 'mega', 'super', 'king'];
+  const meaningfulRunnerKw = runnerKeywords.filter(k => !commonWords.includes(k) && k.length >= 4);
+  const shared = meaningfulRunnerKw.filter(k => tokenKeywords.includes(k));
   
-  // Need at least one meaningful shared keyword
   return shared.length > 0;
 }
 

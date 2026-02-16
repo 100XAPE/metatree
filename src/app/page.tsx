@@ -25,6 +25,7 @@ export default function Dashboard() {
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [selectedToken, setSelectedToken] = useState<Token | null>(null);
   const [expandedRunners, setExpandedRunners] = useState<Set<string>>(new Set());
+  const [autoExpanded, setAutoExpanded] = useState(false);
   
   const loadDashboard = async () => {
     try {
@@ -61,6 +62,19 @@ export default function Dashboard() {
     const syncInterval = setInterval(syncData, 5 * 60 * 1000);
     return () => { clearInterval(i); clearInterval(syncInterval); };
   }, []);
+
+  // Auto-expand runners that have derivatives
+  useEffect(() => {
+    if (data?.runners && !autoExpanded) {
+      const runnersWithDerivatives = data.runners
+        .filter((r: Token) => r.derivatives && r.derivatives.length > 0)
+        .map((r: Token) => r.id);
+      if (runnersWithDerivatives.length > 0) {
+        setExpandedRunners(new Set(runnersWithDerivatives));
+        setAutoExpanded(true);
+      }
+    }
+  }, [data, autoExpanded]);
 
   const toggleExpand = (id: string) => {
     setExpandedRunners(prev => {
