@@ -6,10 +6,10 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     // Get main runners with their derivatives
-    const runners = await prisma.token.findMany({
+    const runnersRaw = await prisma.token.findMany({
       where: { isMainRunner: true, isVisible: true },
       orderBy: { marketCap: 'desc' },
-      take: 15,
+      take: 30,
       include: {
         derivatives: {
           where: { isVisible: true },
@@ -18,6 +18,15 @@ export async function GET() {
         }
       }
     });
+
+    // Sort: runners with derivatives first, then by market cap
+    const runners = runnersRaw.sort((a, b) => {
+      const aDerivs = a.derivatives?.length || 0;
+      const bDerivs = b.derivatives?.length || 0;
+      if (aDerivs > 0 && bDerivs === 0) return -1;
+      if (bDerivs > 0 && aDerivs === 0) return 1;
+      return b.marketCap - a.marketCap;
+    }).slice(0, 15);
 
     // Get unlinked new tokens (branches without a parent runner)
     const branches = await prisma.token.findMany({
