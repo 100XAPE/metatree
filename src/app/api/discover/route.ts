@@ -81,7 +81,7 @@ function extractKeywords(name: string, symbol: string): string[] {
     }
   });
   
-  return [...new Set(found)];
+  return Array.from(new Set(found));
 }
 
 // Check if token B is a derivative of token A
