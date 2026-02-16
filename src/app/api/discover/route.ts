@@ -222,6 +222,12 @@ export async function GET() {
       where: { updatedAt: { lt: oneWeekAgo }, volume5m: { lt: 100 }, isMainRunner: false }
     });
     
+    // Trigger image analysis in background (don't await)
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}` 
+      : 'https://metatree.vercel.app';
+    fetch(`${baseUrl}/api/analyze`).catch(() => {});
+    
     return NextResponse.json({ success: true, added, updated, total: sortedPairs.length });
   } catch (error) {
     console.error('Discovery error:', error);
