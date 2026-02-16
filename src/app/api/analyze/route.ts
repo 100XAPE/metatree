@@ -160,15 +160,15 @@ export async function GET() {
     console.log(`Analyzed ${analyzed.length} images, finding connections...`);
     
     // Find visual connections
-    const runners = analyzed.filter(t => t.isRunner);
-    const others = analyzed.filter(t => !t.isRunner);
+    const analyzedRunners = analyzed.filter(t => t.isRunner);
+    const analyzedOthers = analyzed.filter(t => !t.isRunner);
     
     let linkedCount = 0;
     
-    for (const other of others) {
-      let bestRunner: typeof runners[0] | null = null;
+    for (const other of analyzedOthers) {
+      let bestRunner: typeof analyzedRunners[0] | null = null;
       
-      for (const runner of runners) {
+      for (const runner of analyzedRunners) {
         if (runner.id === other.id) continue;
         
         if (findVisualMatch(runner.desc, other.desc)) {
