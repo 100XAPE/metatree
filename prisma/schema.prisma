@@ -21,8 +21,17 @@ model Token {
   isVisible     Boolean  @default(false)
   isMainRunner  Boolean  @default(false)
   phase         String   @default("PUMP_FUN")
+  keywords      String[] @default([])
+  
+  // Tree structure - links derivative tokens to their parent runner
+  parentRunnerId String?
+  parentRunner   Token?  @relation("TokenDerivatives", fields: [parentRunnerId], references: [id])
+  derivatives    Token[] @relation("TokenDerivatives")
+  
+  // Legacy narrative support
   narrativeId   String?
   narrative     Narrative? @relation(fields: [narrativeId], references: [id])
+  
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -41,7 +50,7 @@ model Narrative {
 
 model Settings {
   id                 String  @id @default("global")
-  minVolume5m        Float   @default(1000)
+  minVolume5m        Float   @default(500)
   mainRunnerMinMc    Float   @default(500000)
   telegramChatId     String?
   telegramBotToken   String?

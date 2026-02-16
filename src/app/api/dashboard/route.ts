@@ -5,35 +5,57 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const [runners, metas, branches, tokenCount, runnerCount, metaCount] = await Promise.all([
-      prisma.token.findMany({
-        where: { isMainRunner: true, isVisible: true },
-        orderBy: { heatScore: 'desc' },
-        take: 10
-      }),
-      prisma.narrative.findMany({
-        where: { tokenCount: { gt: 0 } },
-        orderBy: { totalMarketCap: 'desc' },
-        take: 10
-      }),
-      prisma.token.findMany({
-        where: { isVisible: true, isMainRunner: false },
-        orderBy: { createdAt: 'desc' },
-        take: 15
-      }),
+    // Get main runners with their derivatives
+    const runners = await prisma.token.findMany({
+      where: { isMainRunner: true, isVisible: true },
+      orderBy: { marketCap: 'desc' },
+      take: 15,
+      include: {
+        derivatives: {
+          where: { isVisible: true },
+          orderBy: { volume5m: 'desc' },
+          take: 10
+        }
+      }
+    });
+
+    // Get unlinked new tokens (branches without a parent runner)
+    const branches = await prisma.token.findMany({
+      where: { 
+        isVisible: true, 
+        isMainRunner: false,
+        parentRunnerId: null
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20
+    });
+
+    // Stats
+    const [tokenCount, runnerCount] = await Promise.all([
       prisma.token.count({ where: { isVisible: true } }),
-      prisma.token.count({ where: { isMainRunner: true } }),
-      prisma.narrative.count({ where: { tokenCount: { gt: 0 } } })
+      prisma.token.count({ where: { isMainRunner: true } })
     ]);
+
+    // Count total derivatives
+    const derivativeCount = await prisma.token.count({
+      where: { parentRunnerId: { not: null }, isVisible: true }
+    });
 
     return NextResponse.json({
       runners,
-      metas,
       branches,
-      stats: { tokens: tokenCount, runners: runnerCount, metas: metaCount }
+      stats: { 
+        tokens: tokenCount, 
+        runners: runnerCount,
+        derivatives: derivativeCount
+      }
     });
   } catch (error) {
     console.error('Dashboard error:', error);
-    return NextResponse.json({ runners: [], metas: [], branches: [], stats: { tokens: 0, runners: 0, metas: 0 } });
+    return NextResponse.json({ 
+      runners: [], 
+      branches: [], 
+      stats: { tokens: 0, runners: 0, derivatives: 0 } 
+    });
   }
 }
