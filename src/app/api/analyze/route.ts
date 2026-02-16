@@ -54,12 +54,12 @@ function findVisualMatch(runnerDesc: string, tokenDesc: string): boolean {
   const extractElements = (desc: string): string[] => {
     const elements: string[] = [];
     
-    // Animals
-    const animals = ['cat', 'dog', 'frog', 'pepe', 'bear', 'teddy', 'penguin', 'whale', 'ape', 'monkey', 'orangutan', 'bird', 'owl', 'duck', 'shiba', 'doge'];
+    // Animals & creatures
+    const animals = ['cat', 'dog', 'frog', 'pepe', 'bear', 'teddy', 'penguin', 'whale', 'ape', 'monkey', 'orangutan', 'gorilla', 'chimp', 'bird', 'owl', 'duck', 'shiba', 'doge', 'bunny', 'rabbit', 'fish', 'trout'];
     // Objects
-    const objects = ['hat', 'glasses', 'sunglasses', 'crown', 'sword', 'gun', 'rocket', 'moon', 'bitcoin', 'coin', 'money', 'diamond', 'laser'];
+    const objects = ['hat', 'glasses', 'sunglasses', 'crown', 'sword', 'gun', 'rocket', 'moon', 'bitcoin', 'coin', 'money', 'diamond', 'laser', 'plush', 'stuffed', 'toy', 'cuddle', 'house', 'forest'];
     // Characters
-    const characters = ['elon', 'trump', 'pepe', 'wojak', 'chad', 'doge', 'shiba'];
+    const characters = ['elon', 'trump', 'pepe', 'wojak', 'chad', 'doge', 'shiba', 'punch'];
     
     const allPatterns = [...animals, ...objects, ...characters];
     
@@ -69,7 +69,15 @@ function findVisualMatch(runnerDesc: string, tokenDesc: string): boolean {
       }
     }
     
-    return elements;
+    // Add synonyms - if gorilla/orangutan found, also add bear/teddy (they look similar in memes)
+    if (elements.includes('gorilla') || elements.includes('orangutan')) {
+      elements.push('teddy', 'plush');
+    }
+    if (elements.includes('teddy') || elements.includes('plush') || elements.includes('stuffed')) {
+      elements.push('bear', 'toy');
+    }
+    
+    return [...new Set(elements)];
   };
   
   const runnerElements = extractElements(runnerDesc);
@@ -93,14 +101,13 @@ export async function GET() {
   }
   
   try {
-    // Get all visible tokens with images
+    // Get all tokens with images (including smaller ones)
     const tokens = await prisma.token.findMany({
       where: { 
-        isVisible: true,
         imageUrl: { not: null }
       },
       orderBy: { marketCap: 'desc' },
-      take: 50
+      take: 100
     });
     
     console.log(`Analyzing ${tokens.length} token images...`);
@@ -111,10 +118,9 @@ export async function GET() {
     for (const token of tokens) {
       if (!token.imageUrl) continue;
       
-      // Check if already analyzed (stored in keywords for now)
-      let desc = token.keywords?.find(k => k.startsWith('img:'))?.replace('img:', '');
-      
-      if (!desc) {
+      // Always re-analyze to get fresh descriptions
+      let desc: string | null = null;
+      {
         desc = await analyzeImage(token.imageUrl);
         
         if (desc) {
