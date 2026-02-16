@@ -90,8 +90,9 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-// Similarity threshold for visual match (0.7 = fairly similar, 0.8 = very similar)
-const SIMILARITY_THRESHOLD = 0.65;
+// Similarity threshold for visual match (lower = more matches, higher = stricter)
+// 0.5 = loose match, 0.6 = moderate, 0.7 = fairly similar, 0.8 = very similar
+const SIMILARITY_THRESHOLD = 0.50;
 
 export async function GET() {
   if (!OPENAI_API_KEY) {
@@ -184,6 +185,9 @@ export async function GET() {
     let linkedCount = 0;
     const matches: { derivative: string; runner: string; similarity: number }[] = [];
     
+    // Debug: track all similarity scores for analysis
+    const allScores: { derivative: string; runner: string; similarity: number; derivDesc: string; runnerDesc: string }[] = [];
+    
     for (const other of analyzedOthers) {
       let bestRunner: typeof analyzedRunners[0] | null = null;
       let bestSimilarity = 0;
@@ -192,6 +196,15 @@ export async function GET() {
         if (runner.id === other.id) continue;
         
         const similarity = cosineSimilarity(runner.embedding, other.embedding);
+        
+        // Track all scores for debugging
+        allScores.push({
+          derivative: other.symbol,
+          runner: runner.symbol,
+          similarity: Math.round(similarity * 100),
+          derivDesc: other.desc.slice(0, 60),
+          runnerDesc: runner.desc.slice(0, 60)
+        });
         
         if (similarity >= SIMILARITY_THRESHOLD && similarity > bestSimilarity) {
           bestRunner = runner;
@@ -214,6 +227,9 @@ export async function GET() {
       }
     }
     
+    // Sort allScores by similarity descending to see best potential matches
+    allScores.sort((a, b) => b.similarity - a.similarity);
+    
     return NextResponse.json({
       success: true,
       analyzed: analyzed.length,
@@ -222,6 +238,8 @@ export async function GET() {
       linked: linkedCount,
       threshold: `${SIMILARITY_THRESHOLD * 100}%`,
       matches: matches.slice(0, 20),
+      // Debug: top 15 similarity scores (even below threshold)
+      topScores: allScores.slice(0, 15),
       samples: analyzed.slice(0, 10).map(t => ({ symbol: t.symbol, desc: t.desc }))
     });
     
