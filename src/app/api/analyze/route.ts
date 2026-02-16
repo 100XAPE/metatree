@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 // Analyze token images and find visual connections
-// Uses OpenAI Vision API to describe images
+// Uses OpenAI Vision API to describe images + embeddings for similarity
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -26,7 +26,14 @@ async function analyzeImage(imageUrl: string): Promise<string | null> {
           content: [
             {
               type: 'text',
-              text: 'Describe this crypto token image in 10-20 words. Focus on: main subject, animals, characters, objects, memes, celebrities. Be specific. Example: "orange cat wearing sunglasses" or "pepe frog holding bitcoin" or "elon musk cartoon face"'
+              text: `Describe this crypto token/meme image in detail. Focus on:
+- Main subject (what is it? animal, character, person, object)
+- Style (cartoon, pixel art, realistic, edited photo)
+- Colors (what are the dominant colors)
+- Distinctive features (accessories, expressions, poses)
+- If it resembles a known meme, character, or celebrity, name it
+
+Be specific and detailed. Example: "green cartoon frog (pepe meme) with smug expression, wearing red maga hat" or "shiba inu dog face, orange fur, happy expression, doge meme style"`
             },
             {
               type: 'image_url',
@@ -34,7 +41,7 @@ async function analyzeImage(imageUrl: string): Promise<string | null> {
             }
           ]
         }],
-        max_tokens: 50
+        max_tokens: 150
       })
     });
     
@@ -46,51 +53,45 @@ async function analyzeImage(imageUrl: string): Promise<string | null> {
   }
 }
 
-// Find visual connections between tokens
-function findVisualMatch(runnerDesc: string, tokenDesc: string): boolean {
-  if (!runnerDesc || !tokenDesc) return false;
+// Get embedding for a text description
+async function getEmbedding(text: string): Promise<number[] | null> {
+  if (!OPENAI_API_KEY) return null;
   
-  // Extract key visual elements
-  const extractElements = (desc: string): string[] => {
-    const elements: string[] = [];
+  try {
+    const response = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        input: text
+      })
+    });
     
-    // Animals & creatures
-    const animals = ['cat', 'dog', 'frog', 'pepe', 'bear', 'teddy', 'penguin', 'whale', 'ape', 'monkey', 'orangutan', 'gorilla', 'chimp', 'bird', 'owl', 'duck', 'shiba', 'doge', 'bunny', 'rabbit', 'fish', 'trout'];
-    // Objects
-    const objects = ['hat', 'glasses', 'sunglasses', 'crown', 'sword', 'gun', 'rocket', 'moon', 'bitcoin', 'coin', 'money', 'diamond', 'laser', 'plush', 'stuffed', 'toy', 'cuddle', 'house', 'forest'];
-    // Characters
-    const characters = ['elon', 'trump', 'pepe', 'wojak', 'chad', 'doge', 'shiba', 'punch'];
-    
-    const allPatterns = [...animals, ...objects, ...characters];
-    
-    for (const pattern of allPatterns) {
-      if (desc.includes(pattern)) {
-        elements.push(pattern);
-      }
-    }
-    
-    // Add synonyms - if gorilla/orangutan found, also add bear/teddy (they look similar in memes)
-    if (elements.includes('gorilla') || elements.includes('orangutan')) {
-      elements.push('teddy', 'plush');
-    }
-    if (elements.includes('teddy') || elements.includes('plush') || elements.includes('stuffed')) {
-      elements.push('bear', 'toy');
-    }
-    
-    return Array.from(new Set(elements));
-  };
-  
-  const runnerElements = extractElements(runnerDesc);
-  const tokenElements = extractElements(tokenDesc);
-  
-  // Check for meaningful overlap
-  const overlap = runnerElements.filter(e => tokenElements.includes(e));
-  
-  // Need at least one specific match (not just generic things like 'coin')
-  const meaningfulOverlap = overlap.filter(e => !['coin', 'money', 'crypto'].includes(e));
-  
-  return meaningfulOverlap.length > 0;
+    const data = await response.json();
+    return data.data?.[0]?.embedding || null;
+  } catch (e) {
+    console.error('Embedding failed:', e);
+    return null;
+  }
 }
+
+// Cosine similarity between two vectors
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length) return 0;
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+// Similarity threshold for visual match (0.7 = fairly similar, 0.8 = very similar)
+const SIMILARITY_THRESHOLD = 0.65;
 
 export async function GET() {
   if (!OPENAI_API_KEY) {
@@ -122,15 +123,25 @@ export async function GET() {
     
     console.log(`Analyzing ${tokens.length} token images...`);
     
-    // Analyze images and store descriptions
-    const analyzed: { id: string; symbol: string; desc: string; mc: number; isRunner: boolean }[] = [];
+    // Analyze images and store descriptions + embeddings
+    const analyzed: { 
+      id: string; 
+      symbol: string; 
+      desc: string; 
+      embedding: number[];
+      mc: number; 
+      isRunner: boolean 
+    }[] = [];
     
     for (const token of tokens) {
       if (!token.imageUrl) continue;
       
-      // Always re-analyze to get fresh descriptions
-      let desc: string | null = null;
-      {
+      // Check if we already have a cached description
+      const existingDesc = token.keywords?.find(k => k.startsWith('img:'))?.replace('img:', '');
+      let desc = existingDesc;
+      
+      // Re-analyze if no existing description
+      if (!desc) {
         desc = await analyzeImage(token.imageUrl);
         
         if (desc) {
@@ -142,39 +153,49 @@ export async function GET() {
           });
         }
         
-        // Rate limit
-        await new Promise(r => setTimeout(r, 500));
+        // Rate limit for vision API
+        await new Promise(r => setTimeout(r, 300));
       }
       
       if (desc) {
-        analyzed.push({
-          id: token.id,
-          symbol: token.symbol,
-          desc: desc.replace('img:', ''),
-          mc: token.marketCap,
-          isRunner: token.isMainRunner
-        });
+        // Get embedding for the description
+        const embedding = await getEmbedding(desc);
+        if (embedding) {
+          analyzed.push({
+            id: token.id,
+            symbol: token.symbol,
+            desc,
+            embedding,
+            mc: token.marketCap,
+            isRunner: token.isMainRunner
+          });
+        }
+        // Small delay for embedding API
+        await new Promise(r => setTimeout(r, 100));
       }
     }
     
-    console.log(`Analyzed ${analyzed.length} images, finding connections...`);
+    console.log(`Analyzed ${analyzed.length} images with embeddings, finding connections...`);
     
-    // Find visual connections
+    // Find visual connections using embedding similarity
     const analyzedRunners = analyzed.filter(t => t.isRunner);
     const analyzedOthers = analyzed.filter(t => !t.isRunner);
     
     let linkedCount = 0;
+    const matches: { derivative: string; runner: string; similarity: number }[] = [];
     
     for (const other of analyzedOthers) {
       let bestRunner: typeof analyzedRunners[0] | null = null;
+      let bestSimilarity = 0;
       
       for (const runner of analyzedRunners) {
         if (runner.id === other.id) continue;
         
-        if (findVisualMatch(runner.desc, other.desc)) {
-          if (!bestRunner || runner.mc > bestRunner.mc) {
-            bestRunner = runner;
-          }
+        const similarity = cosineSimilarity(runner.embedding, other.embedding);
+        
+        if (similarity >= SIMILARITY_THRESHOLD && similarity > bestSimilarity) {
+          bestRunner = runner;
+          bestSimilarity = similarity;
         }
       }
       
@@ -184,14 +205,23 @@ export async function GET() {
           data: { parentRunnerId: bestRunner.id }
         });
         linkedCount++;
-        console.log(`Linked ${other.symbol} -> ${bestRunner.symbol} (visual match)`);
+        matches.push({ 
+          derivative: other.symbol, 
+          runner: bestRunner.symbol, 
+          similarity: Math.round(bestSimilarity * 100) 
+        });
+        console.log(`Linked ${other.symbol} -> ${bestRunner.symbol} (${Math.round(bestSimilarity * 100)}% similar)`);
       }
     }
     
     return NextResponse.json({
       success: true,
       analyzed: analyzed.length,
+      runners: analyzedRunners.length,
+      potentialDerivatives: analyzedOthers.length,
       linked: linkedCount,
+      threshold: `${SIMILARITY_THRESHOLD * 100}%`,
+      matches: matches.slice(0, 20),
       samples: analyzed.slice(0, 10).map(t => ({ symbol: t.symbol, desc: t.desc }))
     });
     
