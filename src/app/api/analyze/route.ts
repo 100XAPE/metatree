@@ -77,7 +77,7 @@ function findVisualMatch(runnerDesc: string, tokenDesc: string): boolean {
       elements.push('bear', 'toy');
     }
     
-    return [...new Set(elements)];
+    return Array.from(new Set(elements));
   };
   
   const runnerElements = extractElements(runnerDesc);
