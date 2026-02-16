@@ -191,46 +191,47 @@ export async function GET() {
       isRunner: boolean 
     }[] = [];
     
-    for (const token of tokens) {
-      if (!token.imageUrl) continue;
+    // Process tokens in parallel batches for speed
+    const batchSize = 5;
+    for (let i = 0; i < tokens.length; i += batchSize) {
+      const batch = tokens.slice(i, i + batchSize);
       
-      // Check if we already have a cached description
-      const existingDesc = token.keywords?.find(k => k.startsWith('img:'))?.replace('img:', '');
-      let desc = existingDesc;
-      
-      // Re-analyze if no existing description
-      if (!desc) {
-        desc = await analyzeImage(token.imageUrl);
+      await Promise.all(batch.map(async (token) => {
+        if (!token.imageUrl) return;
+        
+        // Check if we already have a cached description
+        const existingDesc = token.keywords?.find(k => k.startsWith('img:'))?.replace('img:', '');
+        let desc = existingDesc;
+        
+        // Re-analyze if no existing description
+        if (!desc) {
+          desc = await analyzeImage(token.imageUrl);
+          
+          if (desc) {
+            // Store description in keywords
+            const newKeywords = [...(token.keywords || []).filter(k => !k.startsWith('img:')), `img:${desc}`];
+            await prisma.token.update({
+              where: { id: token.id },
+              data: { keywords: newKeywords }
+            });
+          }
+        }
         
         if (desc) {
-          // Store description in keywords
-          const newKeywords = [...(token.keywords || []).filter(k => !k.startsWith('img:')), `img:${desc}`];
-          await prisma.token.update({
-            where: { id: token.id },
-            data: { keywords: newKeywords }
-          });
+          // Get embedding for the description
+          const embedding = await getEmbedding(desc);
+          if (embedding) {
+            analyzed.push({
+              id: token.id,
+              symbol: token.symbol,
+              desc,
+              embedding,
+              mc: token.marketCap,
+              isRunner: token.isMainRunner
+            });
+          }
         }
-        
-        // Rate limit for vision API
-        await new Promise(r => setTimeout(r, 300));
-      }
-      
-      if (desc) {
-        // Get embedding for the description
-        const embedding = await getEmbedding(desc);
-        if (embedding) {
-          analyzed.push({
-            id: token.id,
-            symbol: token.symbol,
-            desc,
-            embedding,
-            mc: token.marketCap,
-            isRunner: token.isMainRunner
-          });
-        }
-        // Small delay for embedding API
-        await new Promise(r => setTimeout(r, 100));
-      }
+      }));
     }
     
     console.log(`Analyzed ${analyzed.length} images with embeddings, finding connections...`);
