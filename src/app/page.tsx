@@ -5,22 +5,54 @@ import { motion } from 'framer-motion';
 export default function Dashboard() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+  
+  const loadDashboard = async () => {
+    try {
+      const res = await fetch('/api/dashboard');
+      const json = await res.json();
+      setData(json);
+    } catch (e) {
+      console.error('API error:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const syncData = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/discover');
+      const json = await res.json();
+      if (json.success) {
+        setLastSync(new Date().toLocaleTimeString());
+        await loadDashboard();
+      }
+    } catch (e) {
+      console.error('Sync error:', e);
+    } finally {
+      setSyncing(false);
+    }
+  };
   
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch('/api/dashboard');
-        const json = await res.json();
-        setData(json);
-      } catch (e) {
-        console.error('API error:', e);
-      } finally {
-        setLoading(false);
-      }
+    // Load dashboard
+    loadDashboard();
+    
+    // Auto-refresh dashboard every 15s
+    const i = setInterval(loadDashboard, 15000);
+    
+    // Sync fresh data on first load
+    syncData();
+    
+    // Auto-sync every 5 minutes
+    const syncInterval = setInterval(syncData, 5 * 60 * 1000);
+    
+    return () => {
+      clearInterval(i);
+      clearInterval(syncInterval);
     };
-    load();
-    const i = setInterval(load, 15000);
-    return () => clearInterval(i);
   }, []);
 
   if (loading) {
@@ -41,6 +73,14 @@ export default function Dashboard() {
           🌳 Metatree
         </h1>
         <p className="text-gray-400 mt-2">Track the Runner. Find the Branches.</p>
+        <button 
+          onClick={syncData}
+          disabled={syncing}
+          className="mt-4 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-600 rounded-lg text-sm transition-colors"
+        >
+          {syncing ? '🔄 Syncing...' : '🔄 Refresh Data'}
+        </button>
+        {lastSync && <p className="text-gray-500 text-xs mt-2">Last sync: {lastSync}</p>}
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -52,16 +92,22 @@ export default function Dashboard() {
               <motion.div key={t.id} initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} 
                 className={`glass rounded-2xl p-4 ${t.priceChange5m > 20 ? 'glow-green' : t.priceChange5m < -20 ? 'glow-red' : ''}`}>
                 <div className="flex justify-between items-start">
-                  <div>
-                    <span className="font-bold text-lg">{t.symbol}</span>
-                    <span className="text-gray-500 ml-2 text-sm">{t.name?.slice(0,12)}</span>
+                  <div className="flex items-center gap-2">
+                    {t.imageUrl && <img src={t.imageUrl} alt="" className="w-8 h-8 rounded-full"/>}
+                    <div>
+                      <span className="font-bold text-lg">{t.symbol}</span>
+                      <span className="text-gray-500 ml-2 text-sm">{t.name?.slice(0,12)}</span>
+                    </div>
                   </div>
                   <span className={`text-sm font-mono ${t.priceChange5m >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {t.priceChange5m >= 0 ? '+' : ''}{t.priceChange5m?.toFixed(1)}%
                   </span>
                 </div>
                 <div className="mt-2 text-2xl font-bold">${(t.marketCap/1000000).toFixed(2)}M</div>
-                <div className="text-gray-500 text-xs mt-1">Heat: {t.heatScore?.toFixed(0)}</div>
+                <div className="flex justify-between text-gray-500 text-xs mt-1">
+                  <span>Vol: ${(t.volume5m/1000).toFixed(1)}K</span>
+                  <span>Heat: {t.heatScore?.toFixed(0)}</span>
+                </div>
               </motion.div>
             )) : (
               <div className="glass rounded-2xl p-6 text-center text-gray-500">
@@ -101,12 +147,20 @@ export default function Dashboard() {
             {data?.branches?.length > 0 ? data.branches.map((t: any) => (
               <motion.div key={t.id} initial={{opacity:0,x:20}} animate={{opacity:1,x:0}}
                 className="glass rounded-2xl p-4">
-                <div className="flex justify-between">
-                  <span className="font-bold">{t.symbol}</span>
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    {t.imageUrl && <img src={t.imageUrl} alt="" className="w-6 h-6 rounded-full"/>}
+                    <span className="font-bold">{t.symbol}</span>
+                  </div>
                   <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">{t.phase}</span>
                 </div>
                 <div className="text-gray-400 text-sm mt-1">{t.name?.slice(0,20)}</div>
-                <div className="text-xs text-gray-500 mt-1">Vol: ${(t.volume5m/1000).toFixed(1)}K</div>
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>Vol: ${(t.volume5m/1000).toFixed(1)}K</span>
+                  <span className={t.priceChange5m >= 0 ? 'text-green-400' : 'text-red-400'}>
+                    {t.priceChange5m >= 0 ? '+' : ''}{t.priceChange5m?.toFixed(1)}%
+                  </span>
+                </div>
               </motion.div>
             )) : (
               <div className="glass rounded-2xl p-6 text-center text-gray-500">
