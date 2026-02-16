@@ -248,3 +248,4 @@ export async function GET() {
     return NextResponse.json({ error: 'Analysis failed', details: String(error) }, { status: 500 });
   }
 }
+// Force rebuild Mon Feb 16 23:04:38 +04 2026
