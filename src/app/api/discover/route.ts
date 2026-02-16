@@ -86,41 +86,53 @@ function extractKeywords(name: string, symbol: string): string[] {
 
 // Check if token B is a derivative of token A
 function isDerivative(runnerName: string, runnerSymbol: string, tokenName: string, tokenSymbol: string): boolean {
-  const runnerText = `${runnerName} ${runnerSymbol}`.toLowerCase();
-  const tokenText = `${tokenName} ${tokenSymbol}`.toLowerCase();
-  
-  // Don't match self
-  if (runnerText === tokenText) return false;
-  if (runnerSymbol.toLowerCase() === tokenSymbol.toLowerCase()) return false;
-  
-  // Direct symbol/name substring matching (more aggressive)
-  const runnerSymLower = runnerSymbol.toLowerCase();
-  const tokenSymLower = tokenSymbol.toLowerCase();
+  const runnerSymLower = runnerSymbol.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const tokenSymLower = tokenSymbol.toLowerCase().replace(/[^a-z0-9]/g, '');
   const tokenNameLower = tokenName.toLowerCase();
   const runnerNameLower = runnerName.toLowerCase();
   
-  // Check if runner symbol appears in token name/symbol
+  // Don't match self
+  if (runnerSymLower === tokenSymLower) return false;
+  
+  // Method 1: Runner symbol appears in token name/symbol (3+ chars)
   if (runnerSymLower.length >= 3) {
     if (tokenSymLower.includes(runnerSymLower) || tokenNameLower.includes(runnerSymLower)) {
       return true;
     }
+    // Also check if token symbol contains part of runner symbol
+    if (runnerSymLower.length >= 4 && tokenSymLower.length >= 4) {
+      // Check 4-char substring matches
+      for (let i = 0; i <= runnerSymLower.length - 4; i++) {
+        const chunk = runnerSymLower.substring(i, i + 4);
+        if (tokenSymLower.includes(chunk) || tokenNameLower.includes(chunk)) {
+          return true;
+        }
+      }
+    }
   }
   
-  // Check if significant part of runner name appears in token
-  const runnerWords = runnerNameLower.split(/[\s\-_]+/).filter(w => w.length >= 4);
+  // Method 2: Check words from runner name in token
+  const runnerWords = runnerNameLower.split(/[\s\-_]+/).filter(w => w.length >= 3 && !['the','and','for','coin','token'].includes(w));
   for (const word of runnerWords) {
     if (tokenSymLower.includes(word) || tokenNameLower.includes(word)) {
       return true;
     }
   }
   
-  // Keyword-based matching
+  // Method 3: Token symbol appears in runner name (reverse check for related tokens)
+  if (tokenSymLower.length >= 4) {
+    if (runnerNameLower.includes(tokenSymLower)) {
+      return true;
+    }
+  }
+  
+  // Method 4: Keyword-based matching
   const runnerKeywords = extractKeywords(runnerName, runnerSymbol);
   const tokenKeywords = extractKeywords(tokenName, tokenSymbol);
   
-  // Check for shared keywords (need meaningful ones, not common ones)
-  const commonWords = ['the', 'coin', 'token', 'sol', 'pump', 'moon', 'rocket', 'baby', 'mini', 'mega', 'super', 'king'];
-  const meaningfulRunnerKw = runnerKeywords.filter(k => !commonWords.includes(k) && k.length >= 4);
+  // Exclude very common memecoin words that would match everything
+  const tooCommon = ['the', 'coin', 'token', 'sol', 'pump', 'moon', 'rocket', 'baby', 'mini', 'mega', 'super', 'king', 'meme', 'based'];
+  const meaningfulRunnerKw = runnerKeywords.filter(k => !tooCommon.includes(k) && k.length >= 3);
   const shared = meaningfulRunnerKw.filter(k => tokenKeywords.includes(k));
   
   return shared.length > 0;
