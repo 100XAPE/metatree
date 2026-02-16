@@ -52,90 +52,62 @@ async function fetchTopGainers(): Promise<DexPair[]> {
   } catch { return []; }
 }
 
-// Extract keywords from token name/symbol for matching
+// Extract keywords for storage
 function extractKeywords(name: string, symbol: string): string[] {
   const text = `${name} ${symbol}`.toLowerCase();
-  const words = text.split(/[\s\-_]+/).filter(w => w.length >= 3);
-  
-  // Common memecoin keywords
   const patterns = [
     'whale', 'pepe', 'doge', 'shib', 'inu', 'cat', 'dog', 'frog', 'bird', 'bear', 'bull',
     'trump', 'elon', 'musk', 'melania', 'barron', 'maga',
-    'ai', 'agent', 'gpt', 'bot', 'auto',
-    'baby', 'mini', 'mega', 'super', 'king', 'queen', 'lord',
-    'moon', 'rocket', 'pump', 'based', 'chad', 'wojak', 'meme', 'kek',
-    'sol', 'bonk', 'wif', 'popcat', 'moo', 'pnut', 'goat', 'mog',
-    'penguin', 'pengu', 'griffin', 'dragon', 'phoenix',
-    'game', 'play', 'pixel', 'nft', 'meta'
+    'ai', 'agent', 'gpt', 'bot',
+    'penguin', 'pengu', 'popcat', 'bonk', 'wif', 'moo', 'pnut', 'goat', 'mog'
   ];
   
   const found: string[] = [];
-  for (const pattern of patterns) {
-    if (text.includes(pattern)) found.push(pattern);
+  for (const p of patterns) {
+    if (text.includes(p)) found.push(p);
   }
-  
-  // Also add significant words from name
-  words.forEach(w => {
-    if (w.length >= 4 && !['token', 'coin', 'official', 'the'].includes(w)) {
-      found.push(w);
-    }
-  });
-  
   return Array.from(new Set(found));
 }
 
-// Check if token B is a derivative of token A
+// Check if token is a derivative of runner
+// STRICT: runner symbol must appear in token name/symbol
 function isDerivative(runnerName: string, runnerSymbol: string, tokenName: string, tokenSymbol: string): boolean {
-  const runnerSymLower = runnerSymbol.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const tokenSymLower = tokenSymbol.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const tokenNameLower = tokenName.toLowerCase();
-  const runnerNameLower = runnerName.toLowerCase();
+  // Normalize
+  const rSym = runnerSymbol.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const tSym = tokenSymbol.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const tName = tokenName.toLowerCase();
   
   // Don't match self
-  if (runnerSymLower === tokenSymLower) return false;
+  if (rSym === tSym) return false;
   
-  // Method 1: Runner symbol appears in token name/symbol (3+ chars)
-  if (runnerSymLower.length >= 3) {
-    if (tokenSymLower.includes(runnerSymLower) || tokenNameLower.includes(runnerSymLower)) {
-      return true;
-    }
-    // Also check if token symbol contains part of runner symbol
-    if (runnerSymLower.length >= 4 && tokenSymLower.length >= 4) {
-      // Check 4-char substring matches
-      for (let i = 0; i <= runnerSymLower.length - 4; i++) {
-        const chunk = runnerSymLower.substring(i, i + 4);
-        if (tokenSymLower.includes(chunk) || tokenNameLower.includes(chunk)) {
-          return true;
-        }
-      }
-    }
-  }
-  
-  // Method 2: Check words from runner name in token
-  const runnerWords = runnerNameLower.split(/[\s\-_]+/).filter(w => w.length >= 3 && !['the','and','for','coin','token'].includes(w));
-  for (const word of runnerWords) {
-    if (tokenSymLower.includes(word) || tokenNameLower.includes(word)) {
+  // RULE 1: Runner symbol (4+ chars) appears in token name or symbol
+  // e.g., "POPCAT" appears in "babypopcat" or "popcatking"
+  if (rSym.length >= 4) {
+    if (tSym.includes(rSym) || tName.includes(rSym)) {
       return true;
     }
   }
   
-  // Method 3: Token symbol appears in runner name (reverse check for related tokens)
-  if (tokenSymLower.length >= 4) {
-    if (runnerNameLower.includes(tokenSymLower)) {
+  // RULE 2: Runner symbol (3 chars) appears as a word boundary in token
+  // e.g., "MOG" appears in "mogking" but not "smogging"
+  if (rSym.length === 3) {
+    const regex = new RegExp(`(^|[^a-z])${rSym}`, 'i');
+    if (regex.test(tSym) || regex.test(tName)) {
       return true;
     }
   }
   
-  // Method 4: Keyword-based matching
-  const runnerKeywords = extractKeywords(runnerName, runnerSymbol);
-  const tokenKeywords = extractKeywords(tokenName, tokenSymbol);
+  // RULE 3: First significant word from runner name (5+ chars) appears in token
+  const rWords = runnerName.toLowerCase().split(/[\s\-_]+/).filter(w => 
+    w.length >= 5 && !['token', 'coin', 'official', 'the'].includes(w)
+  );
+  for (const word of rWords) {
+    if (tSym.includes(word) || tName.includes(word)) {
+      return true;
+    }
+  }
   
-  // Exclude very common memecoin words that would match everything
-  const tooCommon = ['the', 'coin', 'token', 'sol', 'pump', 'moon', 'rocket', 'baby', 'mini', 'mega', 'super', 'king', 'meme', 'based'];
-  const meaningfulRunnerKw = runnerKeywords.filter(k => !tooCommon.includes(k) && k.length >= 3);
-  const shared = meaningfulRunnerKw.filter(k => tokenKeywords.includes(k));
-  
-  return shared.length > 0;
+  return false;
 }
 
 export async function GET() {
@@ -213,7 +185,7 @@ export async function GET() {
       await new Promise(r => setTimeout(r, 50));
     }
     
-    // Now link derivatives to runners
+    // Link derivatives to runners
     const runners = await prisma.token.findMany({ where: { isMainRunner: true } });
     const allTokens = await prisma.token.findMany({ where: { isVisible: true } });
     
