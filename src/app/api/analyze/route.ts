@@ -101,14 +101,24 @@ export async function GET() {
   }
   
   try {
-    // Get all tokens with images (including smaller ones)
-    const tokens = await prisma.token.findMany({
+    // Get runners first, then ALL other tokens (potential derivatives)
+    const runners = await prisma.token.findMany({
       where: { 
+        isMainRunner: true,
         imageUrl: { not: null }
       },
-      orderBy: { marketCap: 'desc' },
-      take: 100
+      orderBy: { marketCap: 'desc' }
     });
+    
+    const potentialDerivatives = await prisma.token.findMany({
+      where: { 
+        isMainRunner: false,
+        imageUrl: { not: null }
+      },
+      orderBy: { marketCap: 'desc' }
+    });
+    
+    const tokens = [...runners, ...potentialDerivatives];
     
     console.log(`Analyzing ${tokens.length} token images...`);
     
