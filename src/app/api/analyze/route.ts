@@ -4,10 +4,67 @@ import { prisma } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// Analyze token images and find visual connections
-// Uses OpenAI Vision API to describe images + embeddings for similarity
+// Multi-method derivative detection:
+// 1. Visual similarity (image embeddings)
+// 2. Name/symbol matching (fuzzy)
+// 3. Description analysis
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+// Common derivative prefixes/suffixes
+const DERIVATIVE_PATTERNS = [
+  'baby', 'mini', 'micro', 'mega', 'super', 'ultra', 'king', 'queen', 
+  'lord', 'sir', 'mr', 'ms', 'dr', 'professor', 'chief', 'general',
+  '2', '2.0', 'ii', 'iii', 'jr', 'sr', 'pro', 'max', 'plus', 'lite',
+  'inu', 'wif', 'hat', 'classic', 'og', 'real', 'true', 'original',
+  'son', 'daughter', 'wife', 'husband', 'mom', 'dad', 'father', 'mother',
+  'sol', 'eth', 'base', 'on'
+];
+
+// Check if tokenName is a derivative of runnerName
+function isNameDerivative(tokenName: string, runnerName: string): boolean {
+  const t = tokenName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const r = runnerName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  
+  // Exact match (shouldn't happen but check)
+  if (t === r) return false;
+  
+  // Token contains runner name
+  if (t.includes(r) && t.length > r.length) return true;
+  
+  // Runner contains token name (token is base, runner might be derivative - skip)
+  // if (r.includes(t) && r.length > t.length) return true;
+  
+  // Check for pattern + runner combinations
+  for (const pattern of DERIVATIVE_PATTERNS) {
+    if (t === pattern + r || t === r + pattern) return true;
+    // Also check with numbers
+    if (t === r + '2' || t === r + '3' || t === r + '69' || t === r + '420') return true;
+  }
+  
+  // Levenshtein distance for typos/variations (if names are similar length)
+  if (Math.abs(t.length - r.length) <= 2 && t.length >= 3) {
+    const distance = levenshtein(t, r);
+    if (distance <= 2 && distance > 0) return true;
+  }
+  
+  return false;
+}
+
+// Simple Levenshtein distance
+function levenshtein(a: string, b: string): number {
+  const matrix: number[][] = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      matrix[i][j] = b[i-1] === a[j-1] 
+        ? matrix[i-1][j-1]
+        : Math.min(matrix[i-1][j-1] + 1, matrix[i][j-1] + 1, matrix[i-1][j] + 1);
+    }
+  }
+  return matrix[b.length][a.length];
+}
 
 async function analyzeImage(imageUrl: string): Promise<string | null> {
   if (!OPENAI_API_KEY) return null;
@@ -178,17 +235,57 @@ export async function GET() {
     
     console.log(`Analyzed ${analyzed.length} images with embeddings, finding connections...`);
     
-    // Find visual connections using embedding similarity
+    // Find connections using multiple methods
     const analyzedRunners = analyzed.filter(t => t.isRunner);
     const analyzedOthers = analyzed.filter(t => !t.isRunner);
     
-    let linkedCount = 0;
-    const matches: { derivative: string; runner: string; similarity: number }[] = [];
+    // Also get all runners for name matching (including those without images)
+    const allRunners = await prisma.token.findMany({
+      where: { isMainRunner: true },
+      orderBy: { marketCap: 'desc' }
+    });
     
-    // Debug: track all similarity scores for analysis
+    // Get all non-runners for name matching
+    const allOthers = await prisma.token.findMany({
+      where: { isMainRunner: false },
+      orderBy: { marketCap: 'desc' }
+    });
+    
+    let linkedCount = 0;
+    const matches: { derivative: string; runner: string; method: string; score: number }[] = [];
+    
+    // Method 1: Name matching (fast, no API calls)
+    for (const other of allOthers) {
+      if (other.parentRunnerId) continue; // Already linked
+      
+      for (const runner of allRunners) {
+        if (isNameDerivative(other.symbol, runner.symbol) || 
+            isNameDerivative(other.name, runner.name)) {
+          await prisma.token.update({
+            where: { id: other.id },
+            data: { parentRunnerId: runner.id }
+          });
+          linkedCount++;
+          matches.push({ 
+            derivative: other.symbol, 
+            runner: runner.symbol, 
+            method: 'name',
+            score: 100
+          });
+          console.log(`Linked ${other.symbol} -> ${runner.symbol} (name match)`);
+          break;
+        }
+      }
+    }
+    
+    // Method 2: Visual similarity (embedding comparison)
     const allScores: { derivative: string; runner: string; similarity: number; derivDesc: string; runnerDesc: string }[] = [];
     
     for (const other of analyzedOthers) {
+      // Check if already linked by name
+      const alreadyLinked = matches.some(m => m.derivative === other.symbol);
+      if (alreadyLinked) continue;
+      
       let bestRunner: typeof analyzedRunners[0] | null = null;
       let bestSimilarity = 0;
       
@@ -221,26 +318,36 @@ export async function GET() {
         matches.push({ 
           derivative: other.symbol, 
           runner: bestRunner.symbol, 
-          similarity: Math.round(bestSimilarity * 100) 
+          method: 'visual',
+          score: Math.round(bestSimilarity * 100) 
         });
-        console.log(`Linked ${other.symbol} -> ${bestRunner.symbol} (${Math.round(bestSimilarity * 100)}% similar)`);
+        console.log(`Linked ${other.symbol} -> ${bestRunner.symbol} (${Math.round(bestSimilarity * 100)}% visual)`);
       }
     }
     
-    // Sort allScores by similarity descending to see best potential matches
+    // Sort allScores by similarity descending
     allScores.sort((a, b) => b.similarity - a.similarity);
+    
+    const nameMatches = matches.filter(m => m.method === 'name').length;
+    const visualMatches = matches.filter(m => m.method === 'visual').length;
     
     return NextResponse.json({
       success: true,
-      analyzed: analyzed.length,
-      runners: analyzedRunners.length,
-      potentialDerivatives: analyzedOthers.length,
-      linked: linkedCount,
-      threshold: `${SIMILARITY_THRESHOLD * 100}%`,
-      matches: matches.slice(0, 20),
-      // Debug: top 15 similarity scores (even below threshold)
-      topScores: allScores.slice(0, 15),
-      samples: analyzed.slice(0, 10).map(t => ({ symbol: t.symbol, desc: t.desc }))
+      stats: {
+        totalTokens: allRunners.length + allOthers.length,
+        runners: allRunners.length,
+        potentialDerivatives: allOthers.length,
+        imagesAnalyzed: analyzed.length
+      },
+      linked: {
+        total: linkedCount,
+        byName: nameMatches,
+        byVisual: visualMatches
+      },
+      visualThreshold: `${SIMILARITY_THRESHOLD * 100}%`,
+      matches: matches.slice(0, 30),
+      topVisualScores: allScores.slice(0, 10),
+      sampleDescriptions: analyzed.slice(0, 5).map(t => ({ symbol: t.symbol, desc: t.desc }))
     });
     
   } catch (error) {
