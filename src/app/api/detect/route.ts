@@ -35,14 +35,18 @@ function soundex(str: string): string {
   return (result + '000').slice(0, 4);
 }
 
-// Check if two strings sound similar
+// Check if two strings sound similar (stricter version)
 function soundsSimilar(a: string, b: string): boolean {
-  const wordsA = a.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(w => w.length > 2);
-  const wordsB = b.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+  const wordsA = a.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(w => w.length >= 4);
+  const wordsB = b.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(w => w.length >= 4);
   
   for (const wordA of wordsA) {
     for (const wordB of wordsB) {
-      if (soundex(wordA) === soundex(wordB) && wordA !== wordB) {
+      // Must have same soundex AND similar length AND share first letter
+      if (soundex(wordA) === soundex(wordB) && 
+          wordA !== wordB &&
+          wordA[0] === wordB[0] &&
+          Math.abs(wordA.length - wordB.length) <= 2) {
         return true;
       }
     }
@@ -88,6 +92,40 @@ function hasKeywordOverlap(a: string[], b: string[]): boolean {
   const entityKeysB = b.filter(k => Object.keys(KNOWN_ENTITIES).includes(k));
   
   return entityKeysA.some(k => entityKeysB.includes(k));
+}
+
+// ============= LAYER 2.5: LETTER SWAP DETECTION =============
+// Common intentional misspellings
+const LETTER_SWAPS: [string, string][] = [
+  ['o', 'u'], ['i', 'e'], ['a', 'e'], ['c', 'k'], ['s', 'z'],
+  ['y', 'i'], ['ph', 'f'], ['ck', 'k'], ['ee', 'i']
+];
+
+function isIntentionalMisspelling(a: string, b: string): boolean {
+  const la = a.toLowerCase();
+  const lb = b.toLowerCase();
+  
+  if (la === lb) return false;
+  if (Math.abs(la.length - lb.length) > 2) return false;
+  if (la.length < 3 || lb.length < 3) return false;
+  
+  // Try each swap
+  for (const [from, to] of LETTER_SWAPS) {
+    if (la.replace(new RegExp(from, 'g'), to) === lb ||
+        lb.replace(new RegExp(from, 'g'), to) === la) {
+      return true;
+    }
+  }
+  
+  // Check if only 1-2 chars different
+  let diff = 0;
+  const minLen = Math.min(la.length, lb.length);
+  for (let i = 0; i < minLen; i++) {
+    if (la[i] !== lb[i]) diff++;
+  }
+  diff += Math.abs(la.length - lb.length);
+  
+  return diff <= 2 && diff > 0;
 }
 
 // ============= LAYER 3: FUZZY STRING MATCHING =============
@@ -220,21 +258,36 @@ export async function GET(request: Request) {
           continue;
         }
         
-        // Layer 2: Phonetic matching
-        if (soundsSimilar(token.name, runner.name) || 
-            soundsSimilar(token.symbol, runner.symbol)) {
-          if (!bestMatch || bestMatch.confidence < 85) {
-            bestMatch = { runner, method: 'phonetic', confidence: 85 };
+        // Layer 2: Intentional misspelling detection
+        if (isIntentionalMisspelling(token.symbol, runner.symbol) ||
+            isIntentionalMisspelling(token.name.split(' ')[0], runner.name.split(' ')[0])) {
+          if (!bestMatch || bestMatch.confidence < 90) {
+            bestMatch = { runner, method: 'misspelling', confidence: 90 };
           }
           continue;
         }
         
-        // Layer 3: Keyword overlap
-        if (hasKeywordOverlap(tokenKeywords, runnerKeywords)) {
-          if (!bestMatch || bestMatch.confidence < 75) {
-            bestMatch = { runner, method: 'keyword', confidence: 75 };
+        // Layer 3: Phonetic matching
+        if (soundsSimilar(token.name, runner.name) || 
+            soundsSimilar(token.symbol, runner.symbol)) {
+          if (!bestMatch || bestMatch.confidence < 80) {
+            bestMatch = { runner, method: 'phonetic', confidence: 80 };
           }
           continue;
+        }
+        
+        // Layer 4: Keyword overlap (only for meaningful entities)
+        if (hasKeywordOverlap(tokenKeywords, runnerKeywords)) {
+          // Extra check: the overlap should be a specific entity, not generic
+          const overlap = tokenKeywords.filter(k => 
+            runnerKeywords.includes(k) && Object.keys(KNOWN_ENTITIES).includes(k)
+          );
+          if (overlap.length > 0) {
+            if (!bestMatch || bestMatch.confidence < 75) {
+              bestMatch = { runner, method: `keyword:${overlap[0]}`, confidence: 75 };
+            }
+            continue;
+          }
         }
         
         // Layer 4: Fuzzy symbol match (80%+ similarity)
