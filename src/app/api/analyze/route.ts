@@ -26,26 +26,24 @@ function isNameDerivative(tokenName: string, runnerName: string): boolean {
   const t = tokenName.toLowerCase().replace(/[^a-z0-9]/g, '');
   const r = runnerName.toLowerCase().replace(/[^a-z0-9]/g, '');
   
-  // Exact match (shouldn't happen but check)
+  // Skip if same or either is too short
   if (t === r) return false;
+  if (r.length < 3) return false; // Runner name must be meaningful
   
-  // Token contains runner name
-  if (t.includes(r) && t.length > r.length) return true;
-  
-  // Runner contains token name (token is base, runner might be derivative - skip)
-  // if (r.includes(t) && r.length > t.length) return true;
+  // Token contains runner name as substring (e.g., "BabyPEPE" contains "PEPE")
+  if (t.includes(r) && t.length > r.length && r.length >= 3) return true;
   
   // Check for pattern + runner combinations
   for (const pattern of DERIVATIVE_PATTERNS) {
     if (t === pattern + r || t === r + pattern) return true;
-    // Also check with numbers
-    if (t === r + '2' || t === r + '3' || t === r + '69' || t === r + '420') return true;
   }
   
-  // Levenshtein distance for typos/variations (if names are similar length)
-  if (Math.abs(t.length - r.length) <= 2 && t.length >= 3) {
+  // Only use Levenshtein for longer names (5+ chars) to avoid false positives
+  if (r.length >= 5 && Math.abs(t.length - r.length) <= 1) {
     const distance = levenshtein(t, r);
-    if (distance <= 2 && distance > 0) return true;
+    // Only allow 1 edit for names 5-7 chars, 2 edits for 8+ chars
+    const maxDistance = r.length >= 8 ? 2 : 1;
+    if (distance <= maxDistance && distance > 0) return true;
   }
   
   return false;
