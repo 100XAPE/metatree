@@ -16,6 +16,7 @@ model Token {
   marketCap     Float    @default(0)
   price         Float    @default(0)
   volume5m      Float    @default(0)
+  volume24h     Float    @default(0)
   priceChange5m Float    @default(0)
   heatScore     Float    @default(0)
   isVisible     Boolean  @default(false)
@@ -27,6 +28,12 @@ model Token {
   parentRunnerId String?
   parentRunner   Token?  @relation("TokenDerivatives", fields: [parentRunnerId], references: [id])
   derivatives    Token[] @relation("TokenDerivatives")
+  matchReason    String? // Why this token was matched as a derivative
+  
+  // Social links
+  website        String?
+  twitter        String?
+  telegram       String?
   
   // Legacy narrative support
   narrativeId   String?

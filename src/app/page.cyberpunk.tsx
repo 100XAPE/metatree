@@ -11,13 +11,8 @@ interface Token {
   marketCap: number;
   price: number;
   volume5m: number;
-  volume24h: number;
   priceChange5m: number;
   phase: string;
-  matchReason?: string;
-  website?: string;
-  twitter?: string;
-  telegram?: string;
   derivatives?: Token[];
 }
 
@@ -35,55 +30,49 @@ export default function Dashboard() {
       const res = await fetch('/api/dashboard');
       const json = await res.json();
       setData(json);
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const syncData = useCallback(async () => {
     setSyncing(true);
-    try { await fetch('/api/discover'); await loadDashboard(); }
-    catch (e) { console.error(e); }
-    finally { setSyncing(false); }
+    try {
+      await fetch('/api/discover');
+      await loadDashboard();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSyncing(false);
+    }
   }, [loadDashboard]);
   
   useEffect(() => {
-    loadDashboard(); syncData();
+    loadDashboard();
+    syncData();
     const i1 = setInterval(loadDashboard, 15000);
     const i2 = setInterval(syncData, 120000);
     return () => { clearInterval(i1); clearInterval(i2); };
   }, [loadDashboard, syncData]);
 
-  // Derivatives start collapsed - user clicks to expand
-  // useEffect(() => {
-  //   if (data?.runners && !autoExpanded) {
-  //     const ids = data.runners.filter((r: Token) => r.derivatives?.length).map((r: Token) => r.id);
-  //     if (ids.length) { setExpandedRunners(new Set(ids)); setAutoExpanded(true); }
-  //   }
-  // }, [data, autoExpanded]);
+  useEffect(() => {
+    if (data?.runners && !autoExpanded) {
+      const ids = data.runners.filter((r: Token) => r.derivatives?.length).map((r: Token) => r.id);
+      if (ids.length) { setExpandedRunners(new Set(ids)); setAutoExpanded(true); }
+    }
+  }, [data, autoExpanded]);
 
   const toggle = (id: string) => setExpandedRunners(p => {
-    const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n;
+    const n = new Set(p);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
   });
 
   const openDex = (m: string) => window.open(`https://dexscreener.com/solana/${m}`, '_blank');
-  const openPump = (m: string) => window.open(`https://pump.fun/${m}`, '_blank');
-  const openBird = (m: string) => window.open(`https://birdeye.so/token/${m}?chain=solana`, '_blank');
-  const copy = (m: string) => { navigator.clipboard.writeText(m); };
+  const copy = (m: string) => navigator.clipboard.writeText(m);
   const fmc = (m: number) => m >= 1e6 ? `$${(m/1e6).toFixed(2)}M` : m >= 1e3 ? `$${(m/1e3).toFixed(0)}K` : `$${m.toFixed(0)}`;
-  const fvol = (v: number) => v >= 1e6 ? `$${(v/1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
-  
-  const unlinkDerivative = async (tokenId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm('Remove this derivative link?')) return;
-    try {
-      await fetch('/api/unlink', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tokenId })
-      });
-      loadDashboard();
-    } catch (err) { console.error(err); }
-  };
 
   if (loading) {
     return (
@@ -99,66 +88,64 @@ export default function Dashboard() {
         <div className="text-sm text-muted-foreground mt-4 font-mono">
           [ INITIALIZING DERIVATIVE SCANNER... ]
         </div>
+        <div className="flex gap-2 mt-8">
+          {[0,1,2,3,4].map(i => (
+            <motion.div 
+              key={i}
+              animate={{ opacity: [0.2, 1, 0.2], scaleY: [0.5, 1, 0.5] }}
+              transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.1 }}
+              className="w-1 h-8 bg-primary rounded-full"
+            />
+          ))}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen data-stream scanlines">
-      {/* Token Modal with Chart */}
+      {/* Token Modal */}
       <AnimatePresence>
         {selectedToken && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 backdrop-blur-sm overflow-y-auto"
+            className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
             onClick={() => setSelectedToken(null)}
           >
             <motion.div 
               initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
-              className="cyber-card corner-accent p-6 max-w-4xl w-full my-8"
+              className="cyber-card corner-accent p-6 max-w-md w-full"
               onClick={e => e.stopPropagation()}
             >
-              {/* Header */}
-              <div className="flex items-center gap-4 mb-4">
+              <div className="flex items-center gap-4 mb-6">
                 {selectedToken.imageUrl ? (
-                  <img src={selectedToken.imageUrl} className="w-14 h-14 rounded cyber-image" />
+                  <img src={selectedToken.imageUrl} className="w-16 h-16 rounded cyber-image" />
                 ) : (
-                  <div className="w-14 h-14 rounded cyber-image flex items-center justify-center text-2xl bg-muted">🪙</div>
+                  <div className="w-16 h-16 rounded cyber-image flex items-center justify-center text-3xl bg-muted">🪙</div>
                 )}
-                <div className="flex-1">
+                <div>
                   <div className="text-2xl font-bold neon-green">{selectedToken.symbol}</div>
                   <div className="text-muted-foreground text-sm">{selectedToken.name}</div>
+                  <div className="badge-cyber inline-block mt-1">{selectedToken.phase}</div>
                 </div>
-                <div className="badge-cyber">{selectedToken.phase}</div>
-                <button onClick={() => setSelectedToken(null)} className="text-muted-foreground hover:text-white text-2xl ml-2">×</button>
-              </div>
-
-              {/* Chart Embed */}
-              <div className="cyber-card mb-4 overflow-hidden" style={{ height: '500px' }}>
-                <iframe 
-                  src={`https://dexscreener.com/solana/${selectedToken.mint}?embed=1&theme=dark&trades=0&info=0`}
-                  className="w-full h-full border-0"
-                  title="Chart"
-                />
+                <button onClick={() => setSelectedToken(null)} className="ml-auto text-muted-foreground hover:text-white text-2xl">×</button>
               </div>
               
-              {/* Stats Grid */}
-              <div className="grid grid-cols-4 gap-3 mb-4">
+              <div className="grid grid-cols-2 gap-3 mb-6">
                 {[
                   { label: 'MCAP', value: fmc(selectedToken.marketCap), color: 'neon-green' },
                   { label: 'PRICE', value: `$${selectedToken.price < 0.001 ? selectedToken.price.toExponential(2) : selectedToken.price.toFixed(6)}`, color: '' },
-                  { label: 'VOL 24H', value: fvol(selectedToken.volume24h || 0), color: 'neon-blue' },
+                  { label: 'VOL 5M', value: `$${(selectedToken.volume5m/1000).toFixed(1)}K`, color: 'neon-blue' },
                   { label: 'CHG 5M', value: `${selectedToken.priceChange5m >= 0 ? '+' : ''}${selectedToken.priceChange5m?.toFixed(2)}%`, color: selectedToken.priceChange5m >= 0 ? 'profit' : 'loss' },
                 ].map(s => (
-                  <div key={s.label} className="cyber-card p-3 text-center">
+                  <div key={s.label} className="cyber-card p-3">
                     <div className="text-[10px] text-muted-foreground tracking-widest">{s.label}</div>
                     <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
                   </div>
                 ))}
               </div>
               
-              {/* Contract */}
-              <div className="cyber-card p-3 mb-4">
+              <div className="cyber-card p-3 mb-6">
                 <div className="text-[10px] text-muted-foreground tracking-widest mb-2">CONTRACT</div>
                 <div className="flex items-center gap-2">
                   <code className="text-xs flex-1 truncate text-primary/80">{selectedToken.mint}</code>
@@ -166,50 +153,12 @@ export default function Dashboard() {
                 </div>
               </div>
               
-              {/* Link Description - shows why this token is linked as derivative */}
-              {selectedToken.matchReason && (
-                <div className="cyber-card p-3 mb-4 border border-purple-500/30">
-                  <div className="text-[10px] text-purple-400 tracking-widest mb-2">🔗 LINK DESCRIPTION</div>
-                  <div className="text-sm text-muted-foreground">
-                    This token was detected as a derivative based on: <span className="text-purple-300 font-mono">{selectedToken.matchReason}</span>
-                  </div>
-                </div>
-              )}
-              
-              {/* Social Links */}
-              {(selectedToken.twitter || selectedToken.telegram || selectedToken.website) && (
-                <div className="flex gap-2 mb-4">
-                  {selectedToken.twitter && (
-                    <a href={selectedToken.twitter} target="_blank" className="btn-cyber px-4 py-2 text-xs flex-1 text-center">
-                      𝕏 TWITTER
-                    </a>
-                  )}
-                  {selectedToken.telegram && (
-                    <a href={selectedToken.telegram} target="_blank" className="btn-cyber px-4 py-2 text-xs flex-1 text-center neon-blue">
-                      ✈️ TELEGRAM
-                    </a>
-                  )}
-                  {selectedToken.website && (
-                    <a href={selectedToken.website} target="_blank" className="btn-cyber px-4 py-2 text-xs flex-1 text-center neon-purple">
-                      🌐 WEBSITE
-                    </a>
-                  )}
-                </div>
-              )}
-              
-              {/* Action Buttons */}
-              <div className="grid grid-cols-4 gap-2">
-                <button onClick={() => openDex(selectedToken.mint)} className="btn-cyber py-2 neon-green text-xs">
-                  📈 DEX
+              <div className="flex gap-3">
+                <button onClick={() => openDex(selectedToken.mint)} className="btn-cyber flex-1 py-3 neon-green">
+                  📈 DEXSCREENER
                 </button>
-                <button onClick={() => window.open(`https://pump.fun/${selectedToken.mint}`, '_blank')} className="btn-cyber py-2 neon-purple text-xs">
-                  🎯 PUMP
-                </button>
-                <button onClick={() => window.open(`https://birdeye.so/token/${selectedToken.mint}?chain=solana`, '_blank')} className="btn-cyber py-2 neon-blue text-xs">
-                  🦅 BIRDEYE
-                </button>
-                <button onClick={() => window.open(`https://solscan.io/token/${selectedToken.mint}`, '_blank')} className="btn-cyber py-2 text-xs">
-                  🔍 SCAN
+                <button onClick={() => window.open(`https://pump.fun/${selectedToken.mint}`, '_blank')} className="btn-cyber flex-1 py-3 neon-purple">
+                  🎯 PUMP.FUN
                 </button>
               </div>
             </motion.div>
@@ -238,30 +187,6 @@ export default function Dashboard() {
             </div>
             
             <div className="flex items-center gap-4">
-              {/* Social Links */}
-              <a 
-                href="https://twitter.com/metatree_sol" 
-                target="_blank" 
-                className="text-muted-foreground hover:text-white transition-colors"
-                title="Twitter"
-              >
-                𝕏
-              </a>
-              <a 
-                href="https://t.me/metatree_sol" 
-                target="_blank" 
-                className="text-muted-foreground hover:text-white transition-colors"
-                title="Telegram"
-              >
-                ✈️
-              </a>
-              
-              <a 
-                href="/research"
-                className="btn-cyber px-4 py-2 text-sm neon-purple"
-              >
-                🔬 RESEARCH
-              </a>
               <div className="flex items-center gap-2 text-xs">
                 <span className="status-online" />
                 <span className="text-muted-foreground">LIVE</span>
@@ -346,7 +271,7 @@ export default function Dashboard() {
                         <span className="text-xl font-bold neon-green">{r.symbol}</span>
                         <span className="text-muted-foreground text-sm">{r.name.slice(0, 25)}</span>
                         {r.derivatives?.length > 0 && (
-                          <span className="badge-cyber neon-purple">{r.derivatives.length} DERIV{r.derivatives.length > 1 ? 'S' : ''}</span>
+                          <span className="badge-cyber neon-purple">{r.derivatives.length} META{r.derivatives.length > 1 ? 'S' : ''}</span>
                         )}
                       </div>
                       <div className="flex gap-6 mt-2 text-sm font-mono">
@@ -354,14 +279,7 @@ export default function Dashboard() {
                         <span className={r.priceChange5m >= 0 ? 'profit' : 'loss'}>
                           {r.priceChange5m >= 0 ? '▲' : '▼'} {Math.abs(r.priceChange5m || 0).toFixed(1)}%
                         </span>
-                        <span className="text-muted-foreground">VOL {fvol(r.volume24h || 0)}</span>
-                        {r.derivatives?.length > 0 && (
-                          <>
-                            <span className="text-primary/60">│</span>
-                            <span className="neon-purple">Meta MC: {fmc(r.derivatives.reduce((sum: number, d: Token) => sum + d.marketCap, 0))}</span>
-                            <span className="neon-blue">Meta Vol: {fvol(r.derivatives.reduce((sum: number, d: Token) => sum + (d.volume24h || 0), 0))}</span>
-                          </>
-                        )}
+                        <span className="text-muted-foreground">VOL ${(r.volume5m/1000).toFixed(1)}K</span>
                       </div>
                     </div>
                     
@@ -386,21 +304,20 @@ export default function Dashboard() {
                     >
                       <div className="border-t border-primary/20 p-4 bg-primary/5">
                         <div className="text-[10px] text-primary tracking-[0.2em] mb-3">▸ DETECTED DERIVATIVES</div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                           {r.derivatives.map((d: Token) => (
                             <div
                               key={d.id}
-                              className="cyber-card p-3 hover:bg-primary/10 transition-colors"
+                              onClick={() => setSelectedToken(d)}
+                              className="cyber-card p-3 cursor-pointer hover:bg-primary/10 transition-colors"
                             >
                               <div className="flex items-center gap-3">
-                                <div onClick={() => setSelectedToken(d)} className="cursor-pointer">
-                                  {d.imageUrl ? (
-                                    <img src={d.imageUrl} className="w-10 h-10 rounded" />
-                                  ) : (
-                                    <div className="w-10 h-10 rounded bg-muted flex items-center justify-center text-sm">🪙</div>
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setSelectedToken(d)}>
+                                {d.imageUrl ? (
+                                  <img src={d.imageUrl} className="w-8 h-8 rounded" />
+                                ) : (
+                                  <div className="w-8 h-8 rounded bg-muted flex items-center justify-center text-sm">🪙</div>
+                                )}
+                                <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2">
                                     <span className="font-bold text-sm truncate">{d.symbol}</span>
                                     <span className="badge-cyber text-[8px]">{d.phase}</span>
@@ -412,25 +329,7 @@ export default function Dashboard() {
                                     </span>
                                   </div>
                                 </div>
-                                {/* Social buttons */}
-                                <div className="flex gap-1">
-                                  {d.twitter && <a href={d.twitter} target="_blank" onClick={e => e.stopPropagation()} className="p-1 hover:bg-primary/20 rounded text-xs" title="Twitter">𝕏</a>}
-                                  {d.telegram && <a href={d.telegram} target="_blank" onClick={e => e.stopPropagation()} className="p-1 hover:bg-primary/20 rounded text-xs" title="Telegram">✈️</a>}
-                                  {d.website && <a href={d.website} target="_blank" onClick={e => e.stopPropagation()} className="p-1 hover:bg-primary/20 rounded text-xs" title="Website">🌐</a>}
-                                  <button onClick={(e) => { e.stopPropagation(); openDex(d.mint); }} className="p-1 hover:bg-primary/20 rounded text-xs" title="DexScreener">📈</button>
-                                </div>
-                              </div>
-                              {/* Match reason + remove */}
-                              <div className="flex items-center justify-between mt-2 pt-2 border-t border-primary/10">
-                                <div className="text-[9px] text-muted-foreground">
-                                  {d.matchReason ? `⚡ ${d.matchReason}` : '⚡ linked'}
-                                </div>
-                                <button 
-                                  onClick={(e) => unlinkDerivative(d.id, e)}
-                                  className="text-[9px] text-red-400/60 hover:text-red-400 px-2 py-0.5 rounded hover:bg-red-400/10"
-                                >
-                                  ✕ remove
-                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); openDex(d.mint); }} className="text-primary hover:neon-green">📈</button>
                               </div>
                             </div>
                           ))}
@@ -490,13 +389,8 @@ export default function Dashboard() {
           <div className="text-2xl font-bold mb-2">
             <span className="neon-green">META</span><span className="neon-purple">TREE</span>
           </div>
-          <div className="text-muted-foreground text-xs tracking-widest mb-4">
+          <div className="text-muted-foreground text-xs tracking-widest">
             [ 12-LAYER DETECTION • REAL-TIME SCAN • BUILT FOR DEGENS ]
-          </div>
-          <div className="flex justify-center gap-6 text-sm">
-            <a href="https://twitter.com/metatree_sol" target="_blank" className="text-muted-foreground hover:neon-green transition-colors">Twitter</a>
-            <a href="https://t.me/metatree_sol" target="_blank" className="text-muted-foreground hover:neon-purple transition-colors">Telegram</a>
-            <a href="https://github.com/metatree" target="_blank" className="text-muted-foreground hover:text-white transition-colors">GitHub</a>
           </div>
         </footer>
       </main>
