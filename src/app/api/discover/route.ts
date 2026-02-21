@@ -10,6 +10,103 @@ const MIN_LIQUIDITY = 5000;
 const MIN_VOLUME_24H = 10000;
 const MAX_TOKENS = 150;
 
+// Stablecoin / wrapped / LP token detection
+const EXCLUDED_SYMBOLS = ['USDC', 'USDT', 'BUSD', 'DAI', 'TUSD', 'USDP', 'FRAX', 'LUSD', 'GUSD', 'WETH', 'WBTC', 'WSOL', 'WMATIC', 'WAVAX'];
+const LP_PATTERNS = ['-LP', '/LP', '_LP', 'LP-', 'UNI-V', 'SLP', 'SUSHI', 'CAKE-LP', 'RAY-', 'ORCA'];
+
+function isExcludedToken(symbol: string, name: string): boolean {
+  const sym = symbol.toUpperCase();
+  const nm = name.toUpperCase();
+  
+  // Check stablecoins/wrapped
+  if (EXCLUDED_SYMBOLS.includes(sym)) return true;
+  if (sym.startsWith('W') && EXCLUDED_SYMBOLS.includes(sym.slice(1))) return true;
+  
+  // Check LP tokens
+  for (const pattern of LP_PATTERNS) {
+    if (sym.includes(pattern) || nm.includes(pattern)) return true;
+  }
+  
+  // Check for obvious stablecoin names
+  if (nm.includes('USD COIN') || nm.includes('TETHER') || nm.includes('STABLECOIN')) return true;
+  if (nm.includes('WRAPPED') || nm.includes('BRIDGED')) return true;
+  if (nm.includes('LIQUIDITY') && nm.includes('POOL')) return true;
+  
+  return false;
+}
+
+interface RunnerCriteria {
+  minMc: number;
+  maxMc: number;
+  minVol24h: number;
+  minVol5m: number;
+  minAgeMinutes: number;
+  maxAgeDays: number;
+  minHolders: number;
+  minLiquidity: number;
+  includeGraduated: boolean;
+  includeRaydium: boolean;
+  includePumpFun: boolean;
+  includeNew: boolean;
+  excludeStables: boolean;
+  excludeWrapped: boolean;
+  excludeLP: boolean;
+  manualRunners: string[];
+  manualExcluded: string[];
+}
+
+function qualifiesAsRunner(
+  token: { 
+    mint: string; 
+    symbol: string; 
+    name: string;
+    marketCap: number; 
+    volume24h: number; 
+    volume5m: number; 
+    liquidity: number;
+    ageHours: number;
+    phase: string;
+  },
+  criteria: RunnerCriteria
+): boolean {
+  // Manual overrides first
+  if (criteria.manualExcluded.includes(token.mint)) return false;
+  if (criteria.manualRunners.includes(token.mint)) return true;
+  
+  // Exclusion checks
+  if (criteria.excludeStables || criteria.excludeWrapped || criteria.excludeLP) {
+    if (isExcludedToken(token.symbol, token.name)) return false;
+  }
+  
+  // Market cap bounds
+  if (token.marketCap < criteria.minMc) return false;
+  if (token.marketCap > criteria.maxMc) return false;
+  
+  // Volume checks
+  if (token.volume24h < criteria.minVol24h) return false;
+  if (token.volume5m < criteria.minVol5m) return false;
+  
+  // Liquidity check
+  if (token.liquidity < criteria.minLiquidity) return false;
+  
+  // Age checks (convert to same unit)
+  const ageMinutes = token.ageHours * 60;
+  const maxAgeMinutes = criteria.maxAgeDays * 24 * 60;
+  if (ageMinutes < criteria.minAgeMinutes) return false;
+  if (ageMinutes > maxAgeMinutes) return false;
+  
+  // Phase checks
+  const phase = token.phase.toUpperCase();
+  if (phase === 'PUMP_FUN' && !criteria.includePumpFun) return false;
+  if (phase === 'NEW' && !criteria.includeNew) return false;
+  if (phase === 'GRADUATED' && !criteria.includeGraduated) return false;
+  if (phase === 'RAYDIUM' && !criteria.includeRaydium) return false;
+  // MIGRATED and TRADING are treated as GRADUATED/RAYDIUM
+  if ((phase === 'MIGRATED' || phase === 'TRADING' || phase === 'RECENT') && !criteria.includeGraduated) return false;
+  
+  return true;
+}
+
 interface DexPair {
   chainId: string;
   pairAddress: string;
@@ -170,6 +267,27 @@ export async function GET() {
     const settings = await prisma.settings.findUnique({ where: { id: 'global' } }) ||
       await prisma.settings.create({ data: { id: 'global' } });
     
+    // Build runner criteria from settings
+    const runnerCriteria: RunnerCriteria = {
+      minMc: settings.runnerMinMc ?? 500000,
+      maxMc: settings.runnerMaxMc ?? 1000000000,
+      minVol24h: settings.runnerMinVol24h ?? 100000,
+      minVol5m: settings.runnerMinVol5m ?? 1000,
+      minAgeMinutes: settings.runnerMinAgeMinutes ?? 30,
+      maxAgeDays: settings.runnerMaxAgeDays ?? 7,
+      minHolders: settings.runnerMinHolders ?? 50,
+      minLiquidity: settings.runnerMinLiquidity ?? 1000,
+      includeGraduated: settings.runnerIncludeGraduated ?? true,
+      includeRaydium: settings.runnerIncludeRaydium ?? true,
+      includePumpFun: settings.runnerIncludePumpFun ?? false,
+      includeNew: settings.runnerIncludeNew ?? false,
+      excludeStables: settings.excludeStablecoins ?? true,
+      excludeWrapped: settings.excludeWrapped ?? true,
+      excludeLP: settings.excludeLPTokens ?? true,
+      manualRunners: (settings.manualRunners || '').split(',').map(s => s.trim()).filter(Boolean),
+      manualExcluded: (settings.manualExcluded || '').split(',').map(s => s.trim()).filter(Boolean),
+    };
+    
     for (const pair of sortedPairs) {
       const mint = pair.baseToken.address;
       const price = parseFloat(pair.priceUsd) || 0;
@@ -182,9 +300,6 @@ export async function GET() {
         (volume5m / 10000) * 30 + Math.max(0, priceChange5m) * 0.5 + (marketCap / 1000000) * 10
       );
       
-      const isVisible = volume5m >= (settings.minVolume5m || 500) || marketCap >= 100000;
-      const isMainRunner = marketCap >= (settings.mainRunnerMinMc || 500000) && isVisible;
-      
       const keywords = extractKeywords(pair.baseToken.name, pair.baseToken.symbol);
       
       let phase = 'TRADING';
@@ -192,7 +307,22 @@ export async function GET() {
       if (ageHours < 1) phase = 'PUMP_FUN';
       else if (ageHours < 6) phase = 'NEW';
       else if (ageHours < 24) phase = 'RECENT';
-      else if (marketCap > 1000000) phase = 'MIGRATED';
+      else if (marketCap > 1000000) phase = 'GRADUATED';
+      
+      const liquidity = pair.liquidity?.usd || 0;
+      
+      const isVisible = volume5m >= (settings.minVolume5m || 500) || marketCap >= 100000;
+      const isMainRunner = qualifiesAsRunner({
+        mint,
+        symbol: pair.baseToken.symbol,
+        name: pair.baseToken.name,
+        marketCap,
+        volume24h,
+        volume5m,
+        liquidity,
+        ageHours,
+        phase
+      }, runnerCriteria);
       
       // Extract social links
       const website = pair.info?.websites?.[0]?.url || null;

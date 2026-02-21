@@ -61,4 +61,29 @@ model Settings {
   mainRunnerMinMc    Float   @default(500000)
   telegramChatId     String?
   telegramBotToken   String?
+  
+  // Runner criteria
+  runnerMinMc        Float   @default(500000)    // $500K
+  runnerMaxMc        Float   @default(1000000000) // $1B
+  runnerMinVol24h    Float   @default(100000)    // $100K
+  runnerMinVol5m     Float   @default(1000)      // $1K
+  runnerMinAgeMinutes Int    @default(30)        // 30 mins
+  runnerMaxAgeDays   Int     @default(7)         // 7 days
+  runnerMinHolders   Int     @default(50)
+  runnerMinLiquidity Float   @default(1000)      // $1K
+  
+  // Phase filters
+  runnerIncludeGraduated Boolean @default(true)
+  runnerIncludeRaydium   Boolean @default(true)
+  runnerIncludePumpFun   Boolean @default(false)
+  runnerIncludeNew       Boolean @default(false)
+  
+  // Exclusions
+  excludeStablecoins  Boolean @default(true)
+  excludeWrapped      Boolean @default(true)
+  excludeLPTokens     Boolean @default(true)
+  
+  // Manual overrides (comma-separated mints)
+  manualRunners       String? // Force these as runners
+  manualExcluded      String? // Force exclude these
 }
