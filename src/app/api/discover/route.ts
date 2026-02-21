@@ -484,3 +484,4 @@ export async function GET() {
     return NextResponse.json({ error: 'Discovery failed', details: String(error) }, { status: 500 });
   }
 }
+// Build: 1771682656
