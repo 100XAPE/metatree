@@ -360,6 +360,36 @@ export async function GET() {
       }
     }
     
+    // === RE-EVALUATE ALL EXISTING RUNNERS ===
+    // Demote runners that no longer qualify
+    const existingRunners = await prisma.token.findMany({ 
+      where: { isMainRunner: true }
+    });
+    
+    let demoted = 0;
+    for (const token of existingRunners) {
+      const stillQualifies = qualifiesAsRunner({
+        mint: token.mint,
+        symbol: token.symbol,
+        name: token.name,
+        marketCap: token.marketCap,
+        volume24h: token.volume24h,
+        volume5m: token.volume5m,
+        liquidity: 10000, // Assume liquidity OK if we don't have fresh data
+        ageHours: (Date.now() - token.createdAt.getTime()) / (1000 * 60 * 60),
+        phase: token.phase
+      }, runnerCriteria);
+      
+      if (!stillQualifies) {
+        await prisma.token.update({
+          where: { id: token.id },
+          data: { isMainRunner: false }
+        });
+        demoted++;
+        console.log(`Demoted ${token.symbol} - no longer qualifies as runner`);
+      }
+    }
+    
     // === DERIVATIVE DETECTION ===
     const runners = await prisma.token.findMany({ 
       where: { isMainRunner: true },
@@ -443,7 +473,8 @@ export async function GET() {
     return NextResponse.json({ 
       success: true, 
       added, 
-      updated, 
+      updated,
+      demoted,
       total: sortedPairs.length,
       linked,
       newDerivatives: newDerivatives.slice(0, 20)
