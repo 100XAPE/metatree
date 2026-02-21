@@ -63,14 +63,14 @@ model Settings {
   telegramBotToken   String?
   
   // Runner criteria
-  runnerMinMc        Float   @default(500000)    // $500K
+  runnerMinMc        Float   @default(1000000)    // $1M
   runnerMaxMc        Float   @default(1000000000) // $1B
-  runnerMinVol24h    Float   @default(100000)    // $100K
-  runnerMinVol5m     Float   @default(1000)      // $1K
-  runnerMinAgeMinutes Int    @default(30)        // 30 mins
-  runnerMaxAgeDays   Int     @default(7)         // 7 days
+  runnerMinVol24h    Float   @default(500000)     // $500K
+  runnerMinVol5m     Float   @default(50000)      // $50K
+  runnerMinAgeMinutes Int    @default(5)          // 5 mins
+  runnerMaxAgeDays   Int     @default(7)          // 7 days
   runnerMinHolders   Int     @default(50)
-  runnerMinLiquidity Float   @default(1000)      // $1K
+  runnerMinLiquidity Float   @default(10000)      // $10K
   
   // Phase filters
   runnerIncludeGraduated Boolean @default(true)

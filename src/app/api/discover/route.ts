@@ -269,14 +269,14 @@ export async function GET() {
     
     // Build runner criteria from settings
     const runnerCriteria: RunnerCriteria = {
-      minMc: settings.runnerMinMc ?? 500000,
+      minMc: settings.runnerMinMc ?? 1000000,
       maxMc: settings.runnerMaxMc ?? 1000000000,
-      minVol24h: settings.runnerMinVol24h ?? 100000,
-      minVol5m: settings.runnerMinVol5m ?? 1000,
-      minAgeMinutes: settings.runnerMinAgeMinutes ?? 30,
+      minVol24h: settings.runnerMinVol24h ?? 500000,
+      minVol5m: settings.runnerMinVol5m ?? 50000,
+      minAgeMinutes: settings.runnerMinAgeMinutes ?? 5,
       maxAgeDays: settings.runnerMaxAgeDays ?? 7,
       minHolders: settings.runnerMinHolders ?? 50,
-      minLiquidity: settings.runnerMinLiquidity ?? 1000,
+      minLiquidity: settings.runnerMinLiquidity ?? 10000,
       includeGraduated: settings.runnerIncludeGraduated ?? true,
       includeRaydium: settings.runnerIncludeRaydium ?? true,
       includePumpFun: settings.runnerIncludePumpFun ?? false,
